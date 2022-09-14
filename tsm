@@ -1,0 +1,107 @@
+#!/bin/bash
+
+set -e
+set -o pipefail
+
+export AWS_PAGER=''
+
+function usage {
+    cat <<EOF
+$(basename ${0}) is a tool to connect to multiple EC2 instances simultaneously via SSM.
+
+Usage:
+    $(basename ${0}) [options] [target ...]
+
+Options:
+    -r --region STRING   The region where the EC2 instance(s) is located. If omitted, use config/env settings in the aws cli.
+    -p --profile STRING  Name of the aws cli profile to use for the connection. If omitted, use default profile or env settings in the aws cli.
+    -o --options STRING  If you want to pass options other than region and profile to "aws ssm start-session", use this. For example, -o "--reason hoge"
+    -l --list            Print a list of Name tags for EC2 instances in the location specified by region and profile.
+    -h --help            Print this
+    -v --version         Print $(basename ${0}) version
+EOF
+}
+
+function version {
+    echo "$(basename ${0}) version 1.0.0"
+}
+
+POSITIONAL_ARGS=()
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -r|--region)  REGION="--region $2"; shift; shift;;
+        -p|--profile)  PROFILE="--profile $2"; shift; shift;;
+        -o|--options)  OPTIONS="$2"; shift; shift;;
+        -l|--list)  LIST="YES"; shift;;
+        -v|--version)  VERSION="YES"; shift;;
+        -h|--help)  HELP="YES"; shift;;
+        --) shift;  POSITIONAL_ARGS+=("$@"); set --;;
+        -*) echo "[ERROR] Unknown option $1"; usage; exit 1;;
+        *)  POSITIONAL_ARGS+=("$1"); shift;;
+    esac
+done
+
+if [[ "${HELP}" == "YES" ]]; then
+    usage
+    exit 0
+fi
+
+if [[ "${VERSION}" == "YES" ]]; then
+    version
+    exit 0
+fi
+
+# LIST MODE
+if [[ "${LIST}" == "YES" ]]; then
+    aws ${PROFILE} ${REGION} ec2 describe-instances --filter "Name=instance-state-name,Values=running" --query 'Reservations[].Instances[].{InstanceId:InstanceId, Name:Tags[?Key==`Name`]|[0].Value}' --output text | sort -k2
+    exit $?
+fi
+
+if [[ ${#POSITIONAL_ARGS[@]} == 0 ]]; then
+    echo "[ERROR] Target is empty"
+    usage
+    exit 1
+fi
+
+# [NOTE:ja] EC2のインスタンスIDが入力された場合はそのまま使う。それ以外の文字列を受け取った場合は検索する。
+# [NOTE:en] If an EC2 instance ID is entered, it is used as is. If any other string is received, it is searched.
+INSTANCE_IDS=()
+for target in ${POSITIONAL_ARGS[@]}; do
+    if [[ ${target} =~ ^i-[a-z0-9]{17}$ ]]; then
+        INSTANCE_IDS+=($target)
+    else
+        INSTANCE_IDS+=($(aws ${PROFILE} ${REGION} ec2 describe-instances --filter "Name=instance-state-name,Values=running" "Name=tag:Name,Values=${target}" --query 'Reservations[].Instances[].InstanceId' --output text))
+    fi
+done
+
+UNIQ_IDS=($( printf "%s\n" "${INSTANCE_IDS[@]}" | sort -u ))
+
+unset POSITIONAL_ARGS
+unset INSTANCE_IDS
+
+
+
+if [ -n "$SESSION_NAME" ];then
+  session=$SESSION_NAME
+else
+  session=multi-ssh-`date +%s`
+fi
+window=multi-ssh
+
+tmux new-session -d -n $window -s $session
+
+tmux send-keys "aws ${PROFILE} ${REGION} ssm start-session --target ${UNIQ_IDS[0]} ${OPTIONS}" C-m
+unset UNIQ_IDS[0]
+
+for i in ${UNIQ_IDS[@]};do
+  tmux split-window
+  tmux select-layout tiled
+  tmux send-keys "aws ${PROFILE} ${REGION} --region ap-northeast-1 ssm start-session --target $i ${OPTIONS}" C-m
+done
+
+# [NOTE] 最初のpaneを選択状態にする / Make the first pane selected
+tmux select-pane -t 0
+
+tmux set-window-option synchronize-panes on
+tmux attach-session -t $session
+

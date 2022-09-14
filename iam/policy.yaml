@@ -1,0 +1,44 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Resources:
+  IAMPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - ec2:DescribeInstances
+              - ssm:StartSession
+              - kms:GenerateDataKey
+            Resource:
+              - '*'
+          - Effect: Allow
+            Action:
+              - ssm:TerminateSession
+              - ssm:ResumeSession
+            Resource:
+              - arn:aws:ssm:*:*:session/${aws:username}-*
+      PolicyName: tsm
+      Users:
+        - !Ref IAMUser
+
+  IAMUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: tsm-trial-user
+
+  IAMAccessKey:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName: !Ref IAMUser
+
+Outputs:
+  IAMAccessKey:
+    Description: This confidentials information is for trial purposes only. Do not use it for a long period of time.
+    Value: !Ref IAMAccessKey
+
+  IAMAccessKeySecretAccessKey:
+    Description: This confidentials information is for trial purposes only. Do not use it for a long period of time.
+    Value: !GetAtt IAMAccessKey.SecretAccessKey
