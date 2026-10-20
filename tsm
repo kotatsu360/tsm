@@ -66,7 +66,7 @@ fi
 # [NOTE:ja] EC2のインスタンスIDが入力された場合はそのまま使う。それ以外の文字列を受け取った場合は検索する。
 # [NOTE:en] If an EC2 instance ID is entered, it is used as is. If any other string is received, it is searched.
 INSTANCE_IDS=()
-for target in ${POSITIONAL_ARGS[@]}; do
+for target in "${POSITIONAL_ARGS[@]}"; do
     if [[ ${target} =~ ^i-[a-z0-9]{17}$ ]]; then
         INSTANCE_IDS+=($target)
     else
@@ -96,7 +96,7 @@ unset UNIQ_IDS[0]
 for i in ${UNIQ_IDS[@]};do
   tmux split-window
   tmux select-layout tiled
-  tmux send-keys "aws ${PROFILE} ${REGION} --region ap-northeast-1 ssm start-session --target $i ${OPTIONS}" C-m
+  tmux send-keys "aws ${PROFILE} ${REGION} ssm start-session --target $i ${OPTIONS}" C-m
 done
 
 # [NOTE] 最初のpaneを選択状態にする / Make the first pane selected
